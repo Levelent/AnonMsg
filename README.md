@@ -14,8 +14,8 @@ Commands:
 
 <b>anon.send [message]</b> - Sends an anonymous message off for review. Only functional in a DM with the bot.
 
-<b>anon.review</b> - [Mod Only] Starts the approval queue, where you can react to allow/deny messages.
+<b>anon.review</b> - Starts the approval queue, where you can react to allow/deny messages. (Mod Only)
 
-<b>anon.output</b> - [Mod Only] Sets the channel you want approved anonymous messages to be sent.
+<b>anon.output</b> - Sets the channel you want approved anonymous messages to be sent. (Mod Only)
 
-<b>anon.notif</b> - [Mod Only] Sets the channel you want to send the approval notification.
+<b>anon.notif</b> - Sets the channel you want to send the approval notification. (Mod Only)
