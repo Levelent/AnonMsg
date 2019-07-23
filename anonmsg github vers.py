@@ -158,7 +158,7 @@ async def send(ctx, *, statement=None):
     print(statement)
     statement = statement.replace('\n', '¬')
     with open("queue.txt", "a", encoding="utf-8") as q:
-        q.write('"' + statement + '"\n')
+        q.write('"{0}"\n'.format(statement))
     await bot.say("Your message has been submitted! You won't be able to send another one for 5 minutes, to prevent spam.")
 
     with open("settings.txt") as s:
