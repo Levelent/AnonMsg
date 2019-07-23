@@ -12,4 +12,10 @@ Commands:
 
 <b>anon.info</b> - Returns uptime, user/server reach, and the output/notification channels.
 
-<b>anon.send [message]</b> - Sends an anonymous message off for review. This command is only functional in a DM with the bot.
+<b>anon.send [message]</b> - Sends an anonymous message off for review. Only functional in a DM with the bot.
+
+<b>anon.review</b> - [Mod Only] Starts the approval queue, where you can react to allow/deny messages.
+
+<b>anon.output</b> - [Mod Only] Sets the channel you want approved anonymous messages to be sent.
+
+<b>anon.notif</b> - [Mod Only] Sets the channel you want to send the approval notification.
