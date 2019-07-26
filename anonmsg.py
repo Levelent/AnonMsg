@@ -80,6 +80,15 @@ async def perm_check(ctx):  # Checks whether the user can send messages in the o
     return False
 
 
+def get_colour(message_number):  # Dynamic embed colour - changes every 50 messages, starting at 100.
+    colours = [0xFF3333, 0xFF9933, 0xFFFF33, 0x99FF33, 0x3399FF, 0x9933FF, 0xFF33FF, 0xFF3399, 0xFFFFFF, 0x000000]
+    if message_number < 100:
+        return 0x4f545c
+    message_number -= 100
+    message_number = message_number % 500
+    return colours[(message_number // 50)]
+
+
 @bot.command(pass_context=True)
 async def help(ctx, *, cmd=None):
     """Did you really just use the help command to try and figure out how to use the help command?
@@ -206,7 +215,7 @@ async def review(ctx):
         with open('queue.txt', 'w', encoding='utf-8') as w:
             w.writelines(data[1:])
         if response.reaction.emoji == "\U00002705":
-            send_em = discord.Embed(description=statement + '- Anonymous')
+            send_em = discord.Embed(colour=get_colour(int(line[2])), description=statement + '- Anonymous')
             send_em.set_footer(text="#" + line[2])
             await bot.send_message(bot.get_channel(line[0]), embed=send_em)
             line[2] = str(int(line[2]) + 1)
