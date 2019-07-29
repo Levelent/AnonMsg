@@ -1,5 +1,5 @@
 import logging
-import discord # Using legacy 0.16.12
+import discord  # Using legacy 0.16.12
 import asyncio
 from discord import errors as err
 from discord.ext import commands
@@ -69,17 +69,6 @@ async def on_command_error(error, ctx):
     await bot.delete_message(err_msg)
 
 
-async def perm_check(ctx):  # Checks whether the user can send messages in the output channel, for a single server.
-    with open("settings.txt") as file:
-        line = str(file.readline())
-        out_chl_id = line.split()[0]
-    out_chl = bot.get_channel(out_chl_id)  # Output channel needed to function (could be deleted)
-    member_of_user = out_chl.server.get_member(ctx.message.author.id)
-    if member_of_user is not None and out_chl.permissions_for(member_of_user).manage_messages:
-        return True
-    return False
-
-
 def get_colour(message_number):  # Dynamic embed colour - changes every 50 messages, starting at 100.
     colours = [0xFF3333, 0xFF9933, 0xFFFF33, 0x99FF33, 0x3399FF, 0x9933FF, 0xFF33FF, 0xFF3399, 0xFFFFFF, 0x000000]
     if message_number < 100:
@@ -103,15 +92,14 @@ async def help(ctx, *, cmd=None):
         doc_str = bot.get_command(cmd).help
         help_em.description = doc_str
         await bot.say(embed=help_em)
-    else:
-        help_em.add_field(name="anon.info", value="Returns some basic info about the bot.")
-        help_em.add_field(name="anon.send [message]", value="Submit a message to be sent, anonymously. "
-                                                            "DM only.")
-        if await perm_check(ctx):
-            help_em.add_field(name="anon.review", value="[Mod] Approve or deny submitted messages.")
-            help_em.add_field(name="anon.output [channel]", value="[Mod] Change the output channel for messages.")
-            help_em.add_field(name="anon.notif [channel]", value="[Mod] Get nofified of approvals in a specific channel.")
-        await bot.say(embed=help_em)
+        return
+    help_em.add_field(name="anon.info", value="Returns some basic info about the bot.")
+    help_em.add_field(name="anon.send [message]", value="Submit a message to be sent, anonymously. DM only.")
+    help_em.add_field(name="anon.review", value="[Mod] Approve or deny submitted messages.")
+    help_em.add_field(name="anon.output [channel]", value="[Mod] Change the output channel for messages.")
+    help_em.add_field(name="anon.notif [channel]", value="[Mod] Get nofified of approvals in a specific channel.")
+    help_em.add_field(name="anon.mutedrole [role]", value="[Mod] This role will not be allowed to send messages via the bot.")
+    await bot.say(embed=help_em)
 
 
 @bot.command(pass_context=True)
@@ -119,23 +107,28 @@ async def info(ctx):
     em = discord.Embed(title="Bot Information", color=0x8B008B)
     em.set_thumbnail(url=bot.user.avatar_url)
     em.set_author(name=str(ctx.message.author), icon_url=ctx.message.author.avatar_url)
+    em.set_footer(text="Created by Keegan#9109")
+
     uptime = time2string(datetime.utcnow() - bot.start_time)
     em.add_field(name="Uptime:", value=uptime)
+
     total_users = 1
     for serv_obj in bot.servers:
         total_users += serv_obj.member_count - 1
     em.add_field(name="Reach:", value="{} users on {} servers".format(total_users, len(bot.servers)))
+
     with open("settings.txt") as file:
         line = str(file.readline()).split()
-    em.add_field(name="Output Channel", value=bot.get_channel(line[0]).mention)
-    if await perm_check(ctx):
-        notif_channel = bot.get_channel(line[1])
-        if notif_channel is None:
-            val = " "
+
+    names = ["Output Channel", "Notify Channel"]
+    for num in range(2):
+        chl = bot.get_channel(line[num])
+        if chl is None:
+            val = "Not Set"
         else:
-            val = notif_channel.mention
-        em.add_field(name="Notify Channel", value=val)
-    em.set_footer(text="Created by Keegan#9109")
+            val = chl.mention
+        em.add_field(name=names[num], value=val)
+
     await bot.say(embed=em)
 
 
@@ -149,6 +142,7 @@ async def send(ctx, *, statement=None):
 
     anon.send [statement] --> sends [statement] to the specified Discord channel.
     """
+
     if ctx.message.channel.type.name == "text":
         await bot.say("This command can only be used when directly messaging me.")
         return
@@ -164,14 +158,44 @@ async def send(ctx, *, statement=None):
     elif "¬" in statement:
         await bot.say("Sorry, you can't send a message with the ¬ character in.")
         return
+
+    with open("settings.txt") as s:
+        line = str(s.readline()).split()
+
+    out_chl = bot.get_channel(line[0])
+    if out_chl is None:
+        await bot.say("Currently, no output channel is set by the server.")
+        return
+    notif_chl = bot.get_channel(line[1])
+    member_of_user = out_chl.server.get_member(ctx.message.author.id)
+
+    if out_chl.server.me.server_permissions.ban_members:
+        ban_list = await bot.get_bans(out_chl.server)
+        if member_of_user in ban_list:
+            await bot.say("Sorry, you're currently banned from that server.")
+            return
+    elif line[2] != "NULL":  # Mute Check (if role set)
+        role_list = out_chl.server.roles
+        role_obj = None
+        for role in role_list:
+            if line[2] == role.id:
+                role_obj = role
+                break
+        if role_obj is not None:
+            if role_obj in member_of_user.roles:
+                await bot.say("Sorry, you're currently muted in that server.")
+                return
+        elif notif_chl is not None:
+            await bot.send_message(notif_chl, "The muted role was not found. WARNING: "
+                                              "People who are muted will still be able to submit messages. "
+                                              "Disable or re-assign the role with 'anon.mutedrole'.")
+
     print(statement)
     statement = statement.replace('\n', '¬')
     with open("queue.txt", "a", encoding="utf-8") as q:
         q.write('"{0}"\n'.format(statement))
     await bot.say("Your message has been submitted! You won't be able to send another one for 5 minutes, to prevent spam.")
 
-    with open("settings.txt") as s:
-        line = str(s.readline()).split()
     notif_chl = bot.get_channel(line[1])
     if notif_chl != "NULL":
         with open('queue.txt', 'r', encoding='utf-8') as q:
@@ -194,13 +218,17 @@ async def review(ctx):
         number = q.read().splitlines(True)
     with open('settings.txt') as s:
         line = str(s.readline()).split()
-
+    out_chl = bot.get_channel(line[0])
+    if out_chl is None:
+        em = discord.Embed(description="No output channel has been set with 'anon.output'.")
+        await bot.edit_message(review_msg, embed=em)
+        return
     for i in range(len(number)):
         with open('queue.txt', 'r', encoding='utf-8') as q:
             data = q.read().splitlines(True)
         em.clear_fields()
         em.add_field(name="Remaining", value=str(len(data)))
-        em.add_field(name="Output Channel", value=bot.get_channel(line[0]).mention)
+        em.add_field(name="Output Channel", value=out_chl.mention)
         statement = data[0].replace('¬', '\n')
         em.add_field(name="Message", value=statement)
         await bot.edit_message(review_msg, embed=em)
@@ -215,74 +243,82 @@ async def review(ctx):
         with open('queue.txt', 'w', encoding='utf-8') as w:
             w.writelines(data[1:])
         if response.reaction.emoji == "\U00002705":
-            send_em = discord.Embed(colour=get_colour(int(line[2])), description=statement + '- Anonymous')
-            send_em.set_footer(text="#" + line[2])
-            await bot.send_message(bot.get_channel(line[0]), embed=send_em)
-            line[2] = str(int(line[2]) + 1)
+            send_em = discord.Embed(colour=get_colour(int(line[3])), description=statement + '- Anonymous')
+            send_em.set_footer(text="#" + line[3])
+            await bot.send_message(out_chl, embed=send_em)
+            line[3] = str(int(line[3]) + 1)
             with open('settings.txt', 'w') as update:
-                update.write("{0} {1} {2}".format(line[0], line[1], line[2]))
+                update.write(" ".join(line))
     em = discord.Embed(description="There are no more messages to approve at the moment.")
     await bot.edit_message(review_msg, embed=em)
 
 
+def update_settings(position, new_string):
+    with open("settings.txt") as settings_r:
+        line = str(settings_r.readline()).split()
+    line[position] = new_string
+    with open("settings.txt", "w") as settings_w:
+        settings_w.write(" ".join(line))
+
+
 @bot.command(pass_context=True)
 @commands.has_permissions(manage_messages=True)
-async def output(ctx, *, target=None):  # Notify in a specific channel when a new item is in the queue (or added to it?)
+async def output(ctx, *, target=None):
     """Sets where you want to output anonymous messages on the server, when approved.
 
-            output <text_channel> --> updates channel to the specified parameter. If none is given, removes notifications.
-        """
-    if len(ctx.message.channel_mentions) == 1:
-        log_channel = ctx.message.channel_mentions[0]
-        log_chl_id = log_channel.id
-        log_chl_mention = log_channel.mention
-    elif target is None:
-        await bot.say("An output channel is required.")
-        return
-    else:
-        await bot.say("Channel not found. Make sure you pass through the channel reference or ID, not the name.")
-        return
+            output <text_channel> --> updates channel to the specified parameter. If none is given, removes output.
+    """
 
-    with open('queue.txt', 'r', encoding='utf-8') as q:
-        number = q.read().splitlines(True)
-    with open("settings.txt") as s:
-        line = str(s.readline()).split()
-    line[0] = log_chl_id
-    with open("settings.txt", "w") as over:
-        over.write(("{0} {1} {2}".format(line[0], line[1], line[2])))
-
-    await bot.say("Output channel updated to: {}".format(log_chl_mention))
+    if target is None:
+        update_settings(0, "NULL")
+        await bot.say("Output channel removed.")
+        return
+    if len(ctx.message.channel_mentions) != 1:
+        await bot.say("Channel not found. Make sure you pass through the channel mention, not the name.")
+        return
+    log_chl = ctx.message.channel_mentions[0]
+    update_settings(0, log_chl.id)
+    await bot.say("Output channel updated to: {}".format(log_chl.mention))
 
 
 @bot.command(pass_context=True)
 @commands.has_permissions(manage_messages=True)
-async def notif(ctx, *, target=None):
+async def notif(ctx, *, target=None):  # Notify in a specific channel when a new item is in the queue (or added to it?)
     """Sets where you want to be notified of new anonymous messages to approve on the server.
 
         notif <text_channel> --> updates channel to the specified parameter. If none is given, removes notifications.
     """
-    if len(ctx.message.channel_mentions) == 1:
-        log_channel = ctx.message.channel_mentions[0]
-        log_chl_id = log_channel.id
-        log_chl_mention = log_channel.mention
-    elif target is None:
-        log_chl_id = "NULL"
-        log_chl_mention = "None set."
 
-    else:
-        await bot.say("Channel not found. Make sure you pass through the channel reference or ID, not the name.")
+    if target is None:
+        update_settings(1, "NULL")
+        await bot.say("Notify channel removed.")
         return
+    if len(ctx.message.channel_mentions) != 1:
+        await bot.say("Channel not found. Make sure you pass through the channel mention, not the name.")
+        return
+    log_chl = ctx.message.channel_mentions[0]
+    update_settings(1, log_chl.id)
+    await bot.say("Notify channel updated to: {}".format(log_chl.mention))
 
-    with open("settings.txt") as s:
-        line = str(s.readline()).split()
-    line[1] = log_chl_id
-    with open("settings.txt", "w") as over:
-        over.write(("{0} {1} {2}".format(line[0], line[1], line[2])))
 
-    await bot.say("Notify channel updated to: {}".format(log_chl_mention))
+@bot.command(pass_context=True)
+@commands.has_permissions(manage_messages=True)
+async def mutedrole(ctx, *, target=None):
+
+    if target is None:
+        update_settings(1, "NULL")
+        await bot.say("Muted role unassigned.")
+        return
+    if len(ctx.message.role_mentions) != 1:
+        await bot.say("Role not found. Make sure you enable and reference the role mention, not the name.")
+        return
+    log_chl = ctx.message.role_mentions[0]
+    update_settings(2, log_chl.id)
+    await bot.say("Muted role updated to: {}".format(log_chl.mention))
+
 
 if __name__ == "__main__":
     try:
-        bot.run('token here')
+        bot.run('token_here')
     except err.HTTPException:
         print("Discord seems to be experiencing some problems right now :/")
