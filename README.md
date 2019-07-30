@@ -19,3 +19,5 @@ Commands:
 <b>anon.output</b> - Sets the channel you want approved anonymous messages to be sent. (Mod Only)
 
 <b>anon.notif</b> - Sets the channel you want to send the approval notification. (Mod Only)
+
+<b>anon.mutedrole</b> - When the message sender has this role, it will not be submitted. (Mod Only)
