@@ -1,6 +1,7 @@
 import logging
 import discord  # Using legacy 0.16.12
 import asyncio
+import colorsys # Used to convert from hsv to rgb
 from discord import errors as err
 from discord.ext import commands
 from discord.ext.commands import CheckFailure, MissingRequiredArgument
@@ -69,13 +70,12 @@ async def on_command_error(error, ctx):
     await bot.delete_message(err_msg)
 
 
-def get_colour(message_number):  # Dynamic embed colour - changes every 50 messages, starting at 100.
-    colours = [0xFF3333, 0xFF9933, 0xFFFF33, 0x99FF33, 0x3399FF, 0x9933FF, 0xFF33FF, 0xFF3399, 0xFFFFFF, 0x000000]
-    if message_number < 100:
-        return 0x4f545c
-    message_number -= 100
-    message_number = message_number % 500
-    return colours[(message_number // 50)]
+def get_colour(message_number):  # Dynamic embed colour - Generates a rainbow of colours using a triangle wave with a period of 360 messages.
+    triangle_wave = lambda m: 90 - abs(m % 180 - 90)
+    hue = (triangle_wave(message_number)/90) 
+    colour = colorsys.hsv_to_rgb(hue, 1, 1) # Saturation and value are always at 1 for maximum intensity
+    hex_colour_str = "0x%02x%02x%02x" % (int(colour[0] * 255), int(colour[1] * 255), int(colour[2] * 255))
+    return int(hex_colour_str, 16)
 
 
 @bot.command(pass_context=True)
@@ -319,6 +319,6 @@ async def mutedrole(ctx, *, target=None):
 
 if __name__ == "__main__":
     try:
-        bot.run('token_here')
+        bot.run('token here')
     except err.HTTPException:
         print("Discord seems to be experiencing some problems right now :/")
