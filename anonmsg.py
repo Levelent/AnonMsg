@@ -1,7 +1,9 @@
 import logging
+import json
 import discord  # Using legacy 0.16.12
 import asyncio
-import colorsys # Used to convert from hsv to rgb
+from colorsys import hsv_to_rgb
+from random import choice
 from discord import errors as err
 from discord.ext import commands
 from discord.ext.commands import CheckFailure, MissingRequiredArgument
@@ -35,6 +37,46 @@ bot.start_time = datetime.utcnow()
 async def on_ready():
     print("{0} is online.".format(bot.user))
     await bot.change_presence(game=discord.Game(name="'anon.help' to start!"))
+
+    with open("queue.json", "r", encoding="utf-8") as file_queue_r:
+        queue = json.loads(file_queue_r.read())
+
+    file_servers = set(queue.keys())
+    curr_servers = set()
+    for svr in bot.servers:
+        curr_servers.add(svr.id)
+
+    to_add = curr_servers - file_servers
+    to_remove = file_servers - curr_servers
+    if to_add == to_remove:
+        print("No servers were added/removed while offline.")
+        return
+
+    if to_add != set():
+        for add_id in to_add:
+            queue[add_id] = []
+    if to_remove != set():
+        for remove_id in to_remove:
+            queue.pop(remove_id)
+
+    with open("queue.json", "w", encoding="utf-8") as file_queue_w:
+        file_queue_w.write(json.dumps(queue))
+
+
+@bot.event
+async def on_server_join(svr):
+    with open("queue.json", "r+", encoding="utf-8") as file_queue:
+        queue = json.loads(file_queue.read())
+        queue[svr.id] = []
+        file_queue.write(json.dumps(queue))
+
+
+@bot.event
+async def on_server_remove(svr):
+    with open("queue.json", "r+", encoding="utf-8") as file_queue:
+        queue = json.loads(file_queue.read())
+        queue.pop(svr.id)
+        file_queue.write(json.dumps(queue))
 
 
 @bot.event
@@ -70,10 +112,10 @@ async def on_command_error(error, ctx):
     await bot.delete_message(err_msg)
 
 
-def get_colour(message_number):  # Dynamic embed colour - Generates a rainbow of colours using a triangle wave with a period of 360 messages.
-    triangle_wave = lambda m: 90 - abs(m % 180 - 90)
-    hue = (triangle_wave(message_number)/90) 
-    colour = colorsys.hsv_to_rgb(hue, 1, 1) # Saturation and value are always at 1 for maximum intensity
+def get_colour(message_number):
+    # Generates a rainbow of colours using a linear function with a period of 360 messages.
+    hue = ((message_number % 360) / 360)
+    colour = hsv_to_rgb(hue, 1, 1)  # Saturation and value are always at 1 for maximum intensity
     hex_colour_str = "0x%02x%02x%02x" % (int(colour[0] * 255), int(colour[1] * 255), int(colour[2] * 255))
     return int(hex_colour_str, 16)
 
@@ -96,9 +138,12 @@ async def help(ctx, *, cmd=None):
     help_em.add_field(name="anon.info", value="Returns some basic info about the bot.")
     help_em.add_field(name="anon.send [message]", value="Submit a message to be sent, anonymously. DM only.")
     help_em.add_field(name="anon.review", value="[Mod] Approve or deny submitted messages.")
-    help_em.add_field(name="anon.output [channel]", value="[Mod] Change the output channel for messages.")
-    help_em.add_field(name="anon.notif [channel]", value="[Mod] Get nofified of approvals in a specific channel.")
-    help_em.add_field(name="anon.mutedrole [role]", value="[Mod] This role will not be allowed to send messages via the bot.")
+    help_em.add_field(name="anon.output {channel}", value="[Mod] Change the output channel for messages.")
+    help_em.add_field(name="anon.notif {channel}", value="[Mod] Get nofified of approvals in a specific channel.")
+    help_em.add_field(name="anon.mutedrole {role}",
+                      value="[Mod] This role will not be allowed to send messages via the bot.")
+    help_em.add_field(name="anon.signoff {message}", value="[Mod] Customise the sign-off below each message.")
+    help_em.add_field(name="anon.counter {num}", value="[Mod] Reset the counter, or set to a specific value.")
     await bot.say(embed=help_em)
 
 
@@ -117,12 +162,13 @@ async def info(ctx):
         total_users += serv_obj.member_count - 1
     em.add_field(name="Reach:", value="{} users on {} servers".format(total_users, len(bot.servers)))
 
-    with open("settings.txt") as file:
-        line = str(file.readline()).split()
+    with open("settings.json") as settings_r:
+        content = json.loads(settings_r.read())
 
     names = ["Output Channel", "Notify Channel"]
+    json_names = ["outputChannel", "notifyChannel"]
     for num in range(2):
-        chl = bot.get_channel(line[num])
+        chl = bot.get_channel(content[json_names[num]])
         if chl is None:
             val = "Not Set"
         else:
@@ -136,7 +182,7 @@ async def info(ctx):
 async def send(ctx, *, statement=None):
     """Submits your message to be sent to a Discord channel, anonymously.
 
-    If you'd like to know the exact channel and settings.txt, try the anon.info command.
+    If you'd like to know the exact channel and settings, try the anon.info command.
     To protect your anonymity, if your message is rejected you won't be notified.
     Please keep in mind custom server emojis won't show as the bot isn't in those servers.
 
@@ -152,21 +198,19 @@ async def send(ctx, *, statement=None):
     elif statement is None:
         await bot.say("You haven't typed anything to send!")
         return
-    elif len(statement) > 1500:
-        await bot.say("We have a character limit of 1500, to make sure Discord doesn't shout at us when transferring your message D:")
-        return
-    elif "¬" in statement:
-        await bot.say("Sorry, you can't send a message with the ¬ character in.")
+    elif len(statement) > 1000:
+        await bot.say(
+            "We have a character limit of 1000, to make sure Discord doesn't shout at us when transferring your message D:")
         return
 
-    with open("settings.txt") as s:
-        line = str(s.readline()).split()
+    with open("settings.json") as file_settings:
+        settings = json.loads(file_settings.read())
 
-    out_chl = bot.get_channel(line[0])
+    out_chl = bot.get_channel(settings["outputChannel"])
     if out_chl is None:
         await bot.say("Currently, no output channel is set by the server.")
         return
-    notif_chl = bot.get_channel(line[1])
+    notif_chl = bot.get_channel(settings["notifyChannel"])
     member_of_user = out_chl.server.get_member(ctx.message.author.id)
 
     if out_chl.server.me.server_permissions.ban_members:
@@ -174,91 +218,140 @@ async def send(ctx, *, statement=None):
         if member_of_user in ban_list:
             await bot.say("Sorry, you're currently banned from that server.")
             return
-    elif line[2] != "NULL":  # Mute Check (if role set)
+    elif settings["mutedRole"] is not None:  # Mute Check (if role set)
         role_list = out_chl.server.roles
         role_obj = None
+
         for role in role_list:
-            if line[2] == role.id:
+            if settings["mutedRole"] == role.id:
                 role_obj = role
                 break
+
         if role_obj is not None:
             if role_obj in member_of_user.roles:
                 await bot.say("Sorry, you're currently muted in that server.")
                 return
         elif notif_chl is not None:
-            await bot.send_message(notif_chl, "The muted role was not found. WARNING: "
-                                              "People who are muted will still be able to submit messages. "
+            await bot.send_message(notif_chl, "WARNING: Muted role not found - "
+                                              "Members who are muted will still be able to submit messages. "
                                               "Disable or re-assign the role with 'anon.mutedrole'.")
 
     print(statement)
-    statement = statement.replace('\n', '¬')
-    with open("queue.txt", "a", encoding="utf-8") as q:
-        q.write('"{0}"\n'.format(statement))
-    await bot.say("Your message has been submitted! You won't be able to send another one for 5 minutes, to prevent spam.")
+    print(out_chl.id)
+    entry = {"outputChannel": out_chl.id, "content": '"{0}"'.format(statement)}
+    with open("queue.json", "r", encoding="utf-8") as file_queue_r:
+        queue = json.loads(file_queue_r.read())
+        queue[out_chl.server.id].append(entry)
+    with open("queue.json", "w", encoding="utf-8") as file_queue_w:
+        file_queue_w.write(json.dumps(queue))
+    await bot.say(
+        "Your message has been submitted! You won't be able to send another one for 5 minutes, to prevent spam.")
 
-    notif_chl = bot.get_channel(line[1])
-    if notif_chl != "NULL":
-        with open('queue.txt', 'r', encoding='utf-8') as q:
-            number = q.read().splitlines(True)
-        await bot.send_message(notif_chl, "There are {0} anonymous messages to review. Type 'anon.review' to start.".format(len(number)))
+    if notif_chl is not None:
+        await bot.send_message(notif_chl,
+                               "There are {0} anonymous messages to review. Type 'anon.review' to start.".format(
+                                   len(queue[out_chl.server.id])))
     bot.cooldown.append(ctx.message.author.id)
     await asyncio.sleep(300)
     bot.cooldown.remove(ctx.message.author.id)
 
 
+def random_signoff():
+    choices = ["Armadillo", "Almond", "Anchovy", "Apple", "Antlion", "Auctioneer", "Ancient", "Anteater", "Anglerfish",
+               "Antithesis", "Avocado", "Axiom", "Athlete", "Activist", "Acquaintance", "Acrobat", "Aeroplane", "Alien",
+               "Alcoholic", "Aunt"]
+    return "- Anonymous " + choice(choices)
+
+
 @bot.command(pass_context=True)
 @commands.has_permissions(manage_messages=True)
 async def review(ctx):
+    if ctx.message.channel.type.name != "text":
+        await bot.say("This command can only be used in a server.")
+        return
+
     em = discord.Embed(colour=0xFFD700)
     em.set_author(name="Approve or Deny Messages", icon_url=bot.user.avatar_url)
     em.set_footer(text="Approvals time out after 30 seconds of inactivity.")
     review_msg = await bot.say(embed=em)
 
-    with open('queue.txt', 'r', encoding='utf-8') as q:
-        number = q.read().splitlines(True)
-    with open('settings.txt') as s:
-        line = str(s.readline()).split()
-    out_chl = bot.get_channel(line[0])
+    with open("settings.json") as file_settings:
+        settings = json.loads(file_settings.read())
+    # Should be removed when multiple outputs per server are introduced
+    out_chl = bot.get_channel(settings["outputChannel"])
+
     if out_chl is None:
         em = discord.Embed(description="No output channel has been set with 'anon.output'.")
         await bot.edit_message(review_msg, embed=em)
         return
-    for i in range(len(number)):
-        with open('queue.txt', 'r', encoding='utf-8') as q:
-            data = q.read().splitlines(True)
+    # Removal ends here
+
+    with open('queue.json', 'r', encoding='utf-8') as file_queue_r:
+        queue = json.loads(file_queue_r.read())
+        svr_queue = queue[ctx.message.server.id]
+
+    flag = False
+    svr_queue_copy = []
+    for item in svr_queue:
+        svr_queue_copy.append(item)
+
+    for entry in svr_queue:
+        print(entry)
+        print(svr_queue_copy)
         em.clear_fields()
-        em.add_field(name="Remaining", value=str(len(data)))
+        em.add_field(name="Remaining", value=str(len(svr_queue_copy)))
+        out_chl = bot.get_channel(entry["outputChannel"])
+        if out_chl is None:
+            flag = True
+            await bot.say("A message was skipped, as no output channel was set for it.")
+            continue
+
         em.add_field(name="Output Channel", value=out_chl.mention)
-        statement = data[0].replace('¬', '\n')
-        em.add_field(name="Message", value=statement)
+        em.add_field(name="Message", value=entry["content"])
         await bot.edit_message(review_msg, embed=em)
         await bot.add_reaction(review_msg, "\U00002705")
         await bot.add_reaction(review_msg, "\U0000274C")
-        response = await bot.wait_for_reaction(["\U00002705", "\U0000274C"], user=ctx.message.author, timeout=30, message=review_msg)
+        response = await bot.wait_for_reaction(["\U00002705", "\U0000274C"], user=ctx.message.author, timeout=30,
+                                               message=review_msg)
         await bot.clear_reactions(review_msg)
         if response is None:
+            queue[ctx.message.server.id] = svr_queue_copy
+            with open('queue.json', 'w', encoding='utf-8') as file_queue:
+                file_queue.write(json.dumps(queue))
+            with open("settings.json", "w") as settings_w:
+                settings_w.write(json.dumps(settings))
             return
 
         # Deletes first line of queue
-        with open('queue.txt', 'w', encoding='utf-8') as w:
-            w.writelines(data[1:])
+        svr_queue_copy.pop(0)
         if response.reaction.emoji == "\U00002705":
-            send_em = discord.Embed(colour=get_colour(int(line[3])), description=statement + '- Anonymous')
-            send_em.set_footer(text="#" + line[3])
+            send_em = discord.Embed(colour=get_colour(settings["counter"]),
+                                    description="{0}\n{1}".format(entry["content"],
+                                                                  settings["signoff"] or random_signoff()))
+            send_em.set_footer(text="#{0}".format(settings["counter"]))
             await bot.send_message(out_chl, embed=send_em)
-            line[3] = str(int(line[3]) + 1)
-            with open('settings.txt', 'w') as update:
-                update.write(" ".join(line))
-    em = discord.Embed(description="There are no more messages to approve at the moment.")
+            settings["counter"] += 1
+            await asyncio.sleep(0.5)
+
+    queue[ctx.message.server.id] = svr_queue_copy
+    with open('queue.json', 'w', encoding='utf-8') as file_queue:
+        file_queue.write(json.dumps(queue))
+    with open("settings.json", "w") as settings_w:
+        settings_w.write(json.dumps(settings))
+    if flag:
+        em = discord.Embed(description="One or more messages were skipped, as no output channel was set for them.")
+    else:
+        em = discord.Embed(description="There are no more messages to approve at the moment.")
+
     await bot.edit_message(review_msg, embed=em)
 
 
-def update_settings(position, new_string):
-    with open("settings.txt") as settings_r:
-        line = str(settings_r.readline()).split()
-    line[position] = new_string
-    with open("settings.txt", "w") as settings_w:
-        settings_w.write(" ".join(line))
+def update_settings(position, new_var):
+    with open("settings.json") as settings_r:
+        content = json.loads(settings_r.read())
+    content[position] = new_var
+    with open("settings.json", "w") as settings_w:
+        settings_w.write(json.dumps(content))
 
 
 @bot.command(pass_context=True)
@@ -270,14 +363,14 @@ async def output(ctx, *, target=None):
     """
 
     if target is None:
-        update_settings(0, "NULL")
+        update_settings("outputChannel", None)
         await bot.say("Output channel removed.")
         return
     if len(ctx.message.channel_mentions) != 1:
         await bot.say("Channel not found. Make sure you pass through the channel mention, not the name.")
         return
     log_chl = ctx.message.channel_mentions[0]
-    update_settings(0, log_chl.id)
+    update_settings("outputChannel", log_chl.id)
     await bot.say("Output channel updated to: {}".format(log_chl.mention))
 
 
@@ -290,35 +383,59 @@ async def notif(ctx, *, target=None):  # Notify in a specific channel when a new
     """
 
     if target is None:
-        update_settings(1, "NULL")
+        update_settings("notifyChannel", None)
         await bot.say("Notify channel removed.")
         return
     if len(ctx.message.channel_mentions) != 1:
         await bot.say("Channel not found. Make sure you pass through the channel mention, not the name.")
         return
     log_chl = ctx.message.channel_mentions[0]
-    update_settings(1, log_chl.id)
+    update_settings("notifyChannel", log_chl.id)
     await bot.say("Notify channel updated to: {}".format(log_chl.mention))
 
 
 @bot.command(pass_context=True)
 @commands.has_permissions(manage_messages=True)
 async def mutedrole(ctx, *, target=None):
-
     if target is None:
-        update_settings(1, "NULL")
+        update_settings("mutedRole", None)
         await bot.say("Muted role unassigned.")
         return
     if len(ctx.message.role_mentions) != 1:
         await bot.say("Role not found. Make sure you enable and reference the role mention, not the name.")
         return
     log_chl = ctx.message.role_mentions[0]
-    update_settings(2, log_chl.id)
+    update_settings("mutedRole", log_chl.id)
     await bot.say("Muted role updated to: {}".format(log_chl.mention))
+
+
+@bot.command(pass_context=True)
+@commands.has_permissions(manage_messages=True)
+async def signoff(ctx, *, target=None):
+    if target is not None and len(target) > 200:
+        await bot.say("Sorry, the length of your custom sign-off has to be under 200 characters.")
+
+    update_settings("signoff", target)
+    if target is None:
+        await bot.say("Sign-off reset to default.")
+    else:
+        await bot.say("Sign-off updated to: `{}`".format(target))
+
+
+@bot.command(pass_context=True)
+@commands.has_permissions(manage_messages=True)
+async def counter(ctx, *, target=None):
+    if target is None:
+        update_settings("signoff", 1)
+        await bot.say("Counter reset.")
+    if target.is_digit():
+        update_settings("signoff", int(target))
+        await bot.say("Counter set to #" + target)
 
 
 if __name__ == "__main__":
     try:
-        bot.run('token here')
+        bot.run('token_here')
     except err.HTTPException:
         print("Discord seems to be experiencing some problems right now :/")
+        
