@@ -22,6 +22,6 @@ Commands:
 
 <b>anon.mutedrole {role mention}</b> - When the message sender has this role, it will not be submitted. (Mod Only)
 
-<b>anon.signoff {message}</b> - Customise the signoff at the end of each message. Leave blank for a random selection. (Mod Only)
+<b>anon.signoff {message}</b> - Customise signoff at the end of each message. Leave blank for a random selection. (Mod Only)
 
 <b>anon.counter {number}</b> - Reset or set the message counter to a specific number. (Mod Only)
