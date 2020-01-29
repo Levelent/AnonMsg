@@ -1,7 +1,7 @@
 # AnonMsg
 A Discord Bot that sends messages, anonymously and with approval.
 
-Uses the v0.16.12 fork of the Discord.py Library. [Click Here](https://discordpy.readthedocs.io/en/v0.16.12/index.html) for the documentation.
+Uses the v0.16.12 fork of the Discord.py Library. [Click Here](https://discordpy.readthedocs.io/en/v0.16.12/index.html) for the documentation. (I'm currently working on migrating this to the most recent version)
 
 Features:
 - Anonymous messaging in a specific channel
